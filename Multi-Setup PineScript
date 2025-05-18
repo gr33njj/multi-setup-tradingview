@@ -1,0 +1,152 @@
+//@version=5
+strategy("Multi-Setup [by gr33njj] (Wyckoff + Quasimodo + Intraday Structure + False Distribution + Liquidity Hunt)", overlay=true)
+
+// --- Параметры и переменные ---
+lengthHighLow = input(5, title="Length for High/Low Calculation")
+volumePeriod = input.int(20, title="Volume Period")
+rsiPeriod = input.int(14, title="RSI Period")
+
+// Объёмы: высокие и низкие
+highVolume = ta.sma(volume, volumePeriod) * 1.5
+lowVolume = ta.sma(volume, volumePeriod)
+
+// --- Функции для распознавания свечных паттернов ---
+isBearishEngulfing() =>
+    close[1] > open[1] and close < open and close < open[1] and open > close[1]
+
+isBullishEngulfing() =>
+    close[1] < open[1] and close > open and close > open[1] and open < close[1]
+
+isPinBar() =>
+    body = math.abs(close - open)
+    candleRange = high - low
+    (body / candleRange) < 0.3 and ((high - close) > body * 2 or (high - open) > body * 2) and ((low - open) > body * 2 or (low - close) > body * 2)
+
+// --- Wyckoff Setup: PS, SC, AR, ST, Spring, SOS ---
+uptrend = close > ta.sma(close, volumePeriod)
+downtrend = close < ta.sma(close, volumePeriod)
+
+// Preliminary Support (PS) & Preliminary Supply (PSY)
+prelimSupport = downtrend and ta.lowest(low, lengthHighLow)
+prelimSupply = uptrend and ta.highest(high, lengthHighLow)
+
+// Selling Climax (SC) & Buying Climax (BC)
+sellingClimax = downtrend and volume > highVolume and close < low[lengthHighLow]
+buyingClimax = uptrend and volume > highVolume and close > high[lengthHighLow]
+
+// Automatic Rally (AR) & Automatic Reaction (AR)
+autoRally = sellingClimax and ta.highest(high, lengthHighLow) > high[lengthHighLow]
+autoReaction = buyingClimax and ta.lowest(low, lengthHighLow) < low[lengthHighLow]
+
+// Secondary Test (ST)
+secondaryTestAccum = sellingClimax and close > low[lengthHighLow] and volume < lowVolume
+secondaryTestDistr = buyingClimax and close < high[lengthHighLow] and volume < lowVolume
+
+// Spring (ложный пробой в накоплении) и Upthrust (ложный пробой в распределении)
+spring = downtrend and close < low[lengthHighLow] and ta.highest(high, lengthHighLow) < high[lengthHighLow]
+upthrust = uptrend and close > high[lengthHighLow] and ta.lowest(low, lengthHighLow) > low[lengthHighLow]
+
+// SOS (Sign of Strength) и SOW (Sign of Weakness)
+signOfStrength = spring and close > ta.highest(high, lengthHighLow)
+signOfWeakness = upthrust and close < ta.lowest(low, lengthHighLow)
+
+// --- Quasimodo Setup: Bearish & Bullish ---
+// Медвежий Квазимодо
+high1 = ta.highest(high, lengthHighLow)
+low1 = ta.lowest(low, lengthHighLow)
+high2Break = high > high1
+low2Break = low < low1 and volume > highVolume
+retestZoneBearish = low < high1 and high > low1
+bearishSignal = retestZoneBearish and (isBearishEngulfing() or isPinBar())
+
+// Бычий Квазимодо
+low1Bullish = ta.lowest(low, lengthHighLow)
+high1Bullish = ta.highest(high, lengthHighLow)
+high2BreakBull = high > high1Bullish and volume > highVolume
+low2BreakBull = low < low1Bullish
+retestZoneBullish = high > low1Bullish and low < high1Bullish
+bullishSignal = retestZoneBullish and (isBullishEngulfing() or isPinBar())
+
+// --- Внутридневная структура ---
+// Медвежий сетап
+resistanceLevel = ta.highest(high, lengthHighLow)
+bearishReversal = isBearishEngulfing() or isPinBar()
+breakLocalLow = close < low[lengthHighLow] and volume > highVolume
+bearishIntradaySignal = bearishReversal and close > resistanceLevel and breakLocalLow
+
+// Бычий сетап
+supportLevel = ta.lowest(low, lengthHighLow)
+bullishReversal = isBullishEngulfing() or isPinBar()
+breakLocalHigh = close > high[lengthHighLow] and volume > highVolume
+bullishIntradaySignal = bullishReversal and close < supportLevel and breakLocalHigh
+
+// --- Ложная дистрибуция ---
+// Ложная дистрибуция
+falseDistributionResistance = ta.highest(high, lengthHighLow)
+falseDistBreak = close > falseDistributionResistance and volume > highVolume
+falseDistPeak = close > falseDistributionResistance and close < high[lengthHighLow]
+falseDistReturn = close < falseDistributionResistance and isBearishEngulfing()
+falseDistSignal = falseDistBreak and falseDistReturn and falseDistPeak
+
+// --- Ложная структура ---
+falseStructureSupport = ta.lowest(low, lengthHighLow)
+falseStructBreak = close < falseStructureSupport and volume > highVolume
+falseStructLow = close < falseStructureSupport and close > low[lengthHighLow]
+falseStructReturn = close > falseStructureSupport and isBullishEngulfing()
+falseStructSignal = falseStructBreak and falseStructReturn and falseStructLow
+
+// --- Охота за ликвидностью ---
+// Медвежья охота за ликвидностью
+liquidityBearSupport = ta.lowest(low, lengthHighLow)
+liquidityBearBreak = close < liquidityBearSupport and volume > highVolume
+newLowBear = low < liquidityBearSupport and low < low[lengthHighLow]
+returnBelowSupportBear = close < liquidityBearSupport
+bearishLiquiditySignal = liquidityBearBreak and returnBelowSupportBear and (isBearishEngulfing() or isPinBar())
+
+// Бычья охота за ликвидностью
+liquidityBullResistance = ta.highest(high, lengthHighLow)
+liquidityBullBreak = close > liquidityBullResistance and volume > highVolume
+newHighBull = high > liquidityBullResistance and high > high[lengthHighLow]
+returnAboveResistanceBull = close > liquidityBullResistance
+bullishLiquiditySignal = liquidityBullBreak and returnAboveResistanceBull and (isBullishEngulfing() or isPinBar())
+
+// --- Логика торговой системы ---
+// Условие для покупки
+buyCondition = bullishSignal or bullishIntradaySignal or signOfStrength or bullishLiquiditySignal or falseStructSignal
+
+// Условие для продажи
+sellCondition = bearishSignal or bearishIntradaySignal or signOfWeakness or bearishLiquiditySignal or falseDistSignal
+
+// --- Открытие позиции ---
+// Открываем длинную позицию (Buy)
+if (buyCondition)
+    strategy.entry("Buy", strategy.long)
+
+// Открываем короткую позицию (Sell)
+if (sellCondition)
+    strategy.entry("Sell", strategy.short)
+
+// --- Закрытие позиции ---
+// Закрытие длинной позиции по сигналу на продажу
+if (sellCondition and strategy.position_size > 0)
+    strategy.close("Buy", when=sellCondition)
+
+// Закрытие короткой позиции по сигналу на покупку
+if (buyCondition and strategy.position_size < 0)
+    strategy.close("Sell", when=buyCondition)
+
+// --- Отображение ключевых уровней ---
+plot(liquidityBearSupport, title="Bear Support Level", color=color.red, style=plot.style_circles, linewidth=1)
+plot(liquidityBullResistance, title="Bull Resistance Level", color=color.green, style=plot.style_circles, linewidth=1)
+
+// --- Сигналы для визуализации ---
+plotshape(prelimSupport, title="Preliminary Support", location=location.belowbar, color=color.blue, style=shape.labelup, text="PS")
+plotshape(prelimSupply, title="Preliminary Supply", location=location.abovebar, color=color.orange, style=shape.labeldown, text="PSY")
+plotshape(sellingClimax, title="Selling Climax", location=location.belowbar, color=color.green, style=shape.labelup, text="SC")
+plotshape(buyingClimax, title="Buying Climax", location=location.abovebar, color=color.red, style=shape.labeldown, text="BC")
+plotshape(spring, title="Spring", location=location.belowbar, color=color.green, style=shape.labelup, text="Spring")
+plotshape(upthrust, title="Upthrust", location=location.abovebar, color=color.red, style=shape.labeldown, text="Upthrust")
+plotshape(bearishSignal, title="Quasimodo Sell", location=location.abovebar, color=color.red, style=shape.labeldown, text="QM Sell")
+plotshape(bullishSignal, title="Quasimodo Buy", location=location.belowbar, color=color.green, style=shape.labelup, text="QM Buy")
+plotshape(bearishIntradaySignal, title="Bearish Intraday", location=location.abovebar, color=color.red, style=shape.labeldown, text="Intraday Sell")
+plotshape(bullishIntradaySignal, title="Bullish Intraday", location=location.belowbar, color=color.green, style=shape.labelup, text="Intraday Buy")
